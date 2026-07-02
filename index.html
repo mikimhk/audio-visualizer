@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Audio Waveform Visualizer</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --accent2: #f778ba;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 48px;
+  }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  p.sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+
+  #drop {
+    width: min(960px, 100%);
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    text-align: center;
+    color: var(--muted);
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    margin-bottom: 16px;
+  }
+  #drop:hover, #drop.over { border-color: var(--accent); background: rgba(88,166,255,.06); color: var(--text); }
+  #drop strong { color: var(--text); }
+  #file { display: none; }
+  #filename { color: var(--accent); font-size: 13px; margin-top: 6px; min-height: 1em; }
+
+  #controls {
+    width: min(960px, 100%);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: end;
+    margin-bottom: 16px;
+  }
+  .ctrl { display: flex; flex-direction: column; gap: 5px; }
+  .ctrl label { font-size: 11px; color: var(--muted); letter-spacing: .04em; }
+  select, input[type="color"] {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 10px;
+    font-size: 13px;
+    height: 36px;
+  }
+  input[type="color"] { width: 52px; padding: 3px; cursor: pointer; }
+  input[type="range"] { width: 120px; accent-color: var(--accent); }
+  button {
+    border: none;
+    border-radius: 8px;
+    padding: 9px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    height: 38px;
+    transition: opacity .15s;
+  }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  #playBtn { background: var(--accent); color: #08131f; }
+  #recBtn { background: var(--accent2); color: #200a14; }
+  button:not(:disabled):hover { opacity: .85; }
+  .spacer { flex: 1; }
+
+  #stage {
+    width: min(960px, 100%);
+    position: relative;
+  }
+  canvas {
+    width: 100%;
+    display: block;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: #000;
+  }
+  #status {
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--muted);
+    min-height: 1.2em;
+  }
+  #status.recording { color: var(--accent2); font-weight: 600; }
+  .note { width: min(960px, 100%); margin-top: 16px; font-size: 12px; color: var(--muted); line-height: 1.7; }
+</style>
+</head>
+<body>
+
+<h1>🎵 Audio Waveform Visualizer</h1>
+<p class="sub">音声ファイルをアップロードすると、波形に合わせて動くビジュアライザー動画を作成できます</p>
+
+<div id="drop">
+  <strong>音声ファイルをドラッグ＆ドロップ</strong>、またはクリックして選択<br>
+  <span style="font-size:12px">(mp3 / wav / m4a / ogg)</span>
+  <div id="filename"></div>
+</div>
+<input type="file" id="file" accept="audio/*">
+
+<div id="controls">
+  <div class="ctrl">
+    <label>スタイル</label>
+    <select id="mode">
+      <option value="line">なめらか波形ライン</option>
+      <option value="mirror">ミラー波形</option>
+      <option value="bars">スペクトラムバー</option>
+      <option value="circle">サークル</option>
+    </select>
+  </div>
+  <div class="ctrl">
+    <label>カラー</label>
+    <input type="color" id="color1" value="#3ddcff">
+  </div>
+  <div class="ctrl">
+    <label>カラー2</label>
+    <input type="color" id="color2" value="#c86bff">
+  </div>
+  <div class="ctrl">
+    <label>背景</label>
+    <input type="color" id="bgcolor" value="#000000">
+  </div>
+  <div class="ctrl">
+    <label>感度 <span id="ampVal">1.0</span></label>
+    <input type="range" id="amp" min="0.2" max="3" step="0.1" value="1">
+  </div>
+  <div class="ctrl">
+    <label>解像度</label>
+    <select id="res">
+      <option value="1280x720">1280×720</option>
+      <option value="1920x1080">1920×1080</option>
+      <option value="1080x1080">1080×1080 (正方形)</option>
+    </select>
+  </div>
+  <div class="spacer"></div>
+  <button id="playBtn" disabled>▶ プレビュー</button>
+  <button id="recBtn" disabled>⏺ 動画を書き出し</button>
+</div>
+
+<div id="stage">
+  <canvas id="canvas" width="1280" height="720"></canvas>
+  <div id="status">音声ファイルを選択してください</div>
+</div>
+
+<p class="note">
+  ※ 動画の書き出しは、音声を再生しながらリアルタイムに録画します（曲の長さぶん時間がかかります）。<br>
+  ※ 書き出し中はこのタブを表示したままにしてください（バックグラウンドにすると描画が止まります）。<br>
+  ※ 出力形式はブラウザ標準の WebM（Chrome/Edge 推奨）。MP4 が必要な場合は変換ツールをご利用ください。
+</p>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const canvas = $('canvas');
+  const ctx2d = canvas.getContext('2d');
+  const els = {
+    drop: $('drop'), file: $('file'), filename: $('filename'),
+    mode: $('mode'), color1: $('color1'), color2: $('color2'), bgcolor: $('bgcolor'),
+    amp: $('amp'), ampVal: $('ampVal'), res: $('res'),
+    playBtn: $('playBtn'), recBtn: $('recBtn'), status: $('status'),
+  };
+
+  let audioCtx = null;
+  let audioBuffer = null;
+  let analyser = null;
+  let sourceNode = null;
+  let rafId = null;
+  let recorder = null;
+  let playing = false;
+  let recording = false;
+  let startTime = 0;
+
+  // 波形の時間方向スムージング用
+  const POINTS = 96;
+  let smoothPts = new Float32Array(POINTS);
+
+  els.amp.addEventListener('input', () => els.ampVal.textContent = Number(els.amp.value).toFixed(1));
+
+  els.res.addEventListener('change', () => {
+    const [w, h] = els.res.value.split('x').map(Number);
+    canvas.width = w;
+    canvas.height = h;
+    drawIdle();
+  });
+
+  // ---- ファイル読み込み ----
+  els.drop.addEventListener('click', () => els.file.click());
+  els.drop.addEventListener('dragover', (e) => { e.preventDefault(); els.drop.classList.add('over'); });
+  els.drop.addEventListener('dragleave', () => els.drop.classList.remove('over'));
+  els.drop.addEventListener('drop', (e) => {
+    e.preventDefault();
+    els.drop.classList.remove('over');
+    if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+  });
+  els.file.addEventListener('change', () => {
+    if (els.file.files[0]) loadFile(els.file.files[0]);
+  });
+
+  async function loadFile(file) {
+    stopAll();
+    setStatus('読み込み中…');
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const buf = await file.arrayBuffer();
+      audioBuffer = await audioCtx.decodeAudioData(buf);
+      els.filename.textContent = `${file.name}（${audioBuffer.duration.toFixed(1)}秒）`;
+      els.playBtn.disabled = false;
+      els.recBtn.disabled = false;
+      setStatus('準備OK。プレビューまたは書き出しを実行できます');
+      drawIdle();
+    } catch (err) {
+      console.error(err);
+      setStatus('読み込みに失敗しました。対応形式か確認してください');
+    }
+  }
+
+  function setStatus(msg, rec = false) {
+    els.status.textContent = msg;
+    els.status.classList.toggle('recording', rec);
+  }
+
+  // ---- 再生 / 録画 ----
+  els.playBtn.addEventListener('click', () => {
+    if (playing) { stopAll(); return; }
+    startPlayback(false);
+  });
+
+  els.recBtn.addEventListener('click', () => {
+    if (recording) { stopAll(); return; }
+    startPlayback(true);
+  });
+
+  function startPlayback(withRecording) {
+    if (!audioBuffer) return;
+    audioCtx.resume();
+
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.82;
+
+    sourceNode = audioCtx.createBufferSource();
+    sourceNode.buffer = audioBuffer;
+    sourceNode.connect(analyser);
+    analyser.connect(audioCtx.destination);
+
+    if (withRecording) {
+      const dest = audioCtx.createMediaStreamDestination();
+      analyser.connect(dest);
+      const canvasStream = canvas.captureStream(60);
+      const stream = new MediaStream([
+        ...canvasStream.getVideoTracks(),
+        ...dest.stream.getAudioTracks(),
+      ]);
+      const mime = pickMime();
+      recorder = new MediaRecorder(stream, {
+        mimeType: mime,
+        videoBitsPerSecond: 10_000_000,
+      });
+      const chunks = [];
+      recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: mime });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `visualizer_${Date.now()}.${mime.includes('mp4') ? 'mp4' : 'webm'}`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 10_000);
+        setStatus('動画をダウンロードしました 🎉');
+      };
+      recorder.start();
+      recording = true;
+      els.recBtn.textContent = '⏹ 書き出し停止';
+      els.playBtn.disabled = true;
+    } else {
+      playing = true;
+      els.playBtn.textContent = '⏹ 停止';
+      els.recBtn.disabled = true;
+    }
+
+    smoothPts = new Float32Array(POINTS);
+    startTime = audioCtx.currentTime;
+    sourceNode.onended = () => stopAll();
+    sourceNode.start();
+    tick();
+  }
+
+  function stopAll() {
+    if (sourceNode) {
+      sourceNode.onended = null;
+      try { sourceNode.stop(); } catch (_) {}
+      sourceNode.disconnect();
+      sourceNode = null;
+    }
+    if (recorder && recorder.state !== 'inactive') {
+      // 最後のフレームまで録画されるよう少し待ってから停止
+      const r = recorder;
+      setTimeout(() => r.stop(), 200);
+    }
+    recorder = null;
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+    playing = false;
+    recording = false;
+    els.playBtn.textContent = '▶ プレビュー';
+    els.recBtn.textContent = '⏺ 動画を書き出し';
+    els.playBtn.disabled = !audioBuffer;
+    els.recBtn.disabled = !audioBuffer;
+  }
+
+  function pickMime() {
+    const candidates = [
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm',
+      'video/mp4',
+    ];
+    return candidates.find((m) => MediaRecorder.isTypeSupported(m)) || '';
+  }
+
+  // ---- 描画 ----
+  function tick() {
+    rafId = requestAnimationFrame(tick);
+    draw();
+    const t = audioCtx.currentTime - startTime;
+    const total = audioBuffer.duration;
+    const label = recording ? '🔴 書き出し中' : '再生中';
+    setStatus(`${label}  ${fmt(t)} / ${fmt(total)}`, recording);
+  }
+
+  const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+  function drawIdle() {
+    const { width: W, height: H } = canvas;
+    ctx2d.fillStyle = els.bgcolor.value;
+    ctx2d.fillRect(0, 0, W, H);
+    ctx2d.strokeStyle = els.color1.value + '55';
+    ctx2d.lineWidth = Math.max(2, W / 640);
+    ctx2d.beginPath();
+    ctx2d.moveTo(0, H / 2);
+    ctx2d.lineTo(W, H / 2);
+    ctx2d.stroke();
+  }
+
+  function gradient(W) {
+    const g = ctx2d.createLinearGradient(0, 0, W, 0);
+    g.addColorStop(0, els.color1.value);
+    g.addColorStop(1, els.color2.value);
+    return g;
+  }
+
+  function draw() {
+    const { width: W, height: H } = canvas;
+    const amp = Number(els.amp.value);
+    ctx2d.fillStyle = els.bgcolor.value;
+    ctx2d.fillRect(0, 0, W, H);
+
+    const mode = els.mode.value;
+    if (mode === 'bars') drawBars(W, H, amp);
+    else if (mode === 'circle') drawCircle(W, H, amp);
+    else drawWave(W, H, amp, mode === 'mirror');
+  }
+
+  function updateWavePoints(amp) {
+    const data = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(data);
+    const seg = Math.floor(data.length / POINTS);
+    for (let i = 0; i < POINTS; i++) {
+      // 各区間のピーク値（符号つき）を採用してうねりを出す
+      let peak = 0;
+      for (let j = i * seg; j < (i + 1) * seg; j++) {
+        if (Math.abs(data[j]) > Math.abs(peak)) peak = data[j];
+      }
+      // 時間方向に補間してなめらかに動かす
+      smoothPts[i] += (peak * amp - smoothPts[i]) * 0.25;
+    }
+  }
+
+  function strokeSmoothPath(pts, W, H, midY, scaleY) {
+    ctx2d.beginPath();
+    const step = W / (POINTS - 1);
+    ctx2d.moveTo(0, midY + pts[0] * scaleY);
+    for (let i = 1; i < POINTS - 1; i++) {
+      const x = i * step;
+      const y = midY + pts[i] * scaleY;
+      const nx = (i + 1) * step;
+      const ny = midY + pts[i + 1] * scaleY;
+      ctx2d.quadraticCurveTo(x, y, (x + nx) / 2, (y + ny) / 2);
+    }
+    ctx2d.lineTo(W, midY + pts[POINTS - 1] * scaleY);
+    ctx2d.stroke();
+  }
+
+  function drawWave(W, H, amp, mirror) {
+    updateWavePoints(amp);
+    const midY = H / 2;
+    const scaleY = H * 0.35;
+    const grad = gradient(W);
+
+    ctx2d.lineCap = 'round';
+    ctx2d.lineJoin = 'round';
+
+    if (mirror) {
+      ctx2d.strokeStyle = grad;
+      ctx2d.globalAlpha = 0.35;
+      ctx2d.lineWidth = Math.max(2, W / 640);
+      ctx2d.shadowBlur = 0;
+      strokeSmoothPath(smoothPts.map(v => -v), W, H, midY, scaleY);
+      ctx2d.globalAlpha = 1;
+    }
+
+    // グロー（下層の太い半透明ライン）
+    ctx2d.strokeStyle = grad;
+    ctx2d.shadowColor = els.color1.value;
+    ctx2d.shadowBlur = W / 64;
+    ctx2d.lineWidth = Math.max(3, W / 320);
+    strokeSmoothPath(smoothPts, W, H, midY, scaleY);
+    ctx2d.shadowBlur = 0;
+  }
+
+  function drawBars(W, H, amp) {
+    const bins = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(bins);
+    const N = 64;
+    const gap = W / N * 0.25;
+    const bw = W / N - gap;
+    const grad = gradient(W);
+    ctx2d.fillStyle = grad;
+    const midY = H / 2;
+    for (let i = 0; i < N; i++) {
+      // 低域〜高域を対数的にサンプリング
+      const idx = Math.floor(Math.pow(i / N, 1.6) * bins.length * 0.7);
+      const v = (bins[idx] / 255) * amp;
+      const h = Math.max(H * 0.01, v * H * 0.42);
+      const x = i * (bw + gap) + gap / 2;
+      roundRect(x, midY - h, bw, h * 2, bw / 2);
+    }
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx2d.beginPath();
+    ctx2d.roundRect(x, y, w, h, r);
+    ctx2d.fill();
+  }
+
+  function drawCircle(W, H, amp) {
+    const bins = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(bins);
+    const cx = W / 2, cy = H / 2;
+    const base = Math.min(W, H) * 0.22;
+    const N = 128;
+    const grad = gradient(W);
+    ctx2d.strokeStyle = grad;
+    ctx2d.lineWidth = Math.max(2, Math.min(W, H) / 240);
+    ctx2d.lineCap = 'round';
+    ctx2d.shadowColor = els.color1.value;
+    ctx2d.shadowBlur = Math.min(W, H) / 80;
+    for (let i = 0; i < N; i++) {
+      const idx = Math.floor(Math.pow(i / N, 1.4) * bins.length * 0.6);
+      const v = (bins[idx] / 255) * amp;
+      const len = base * 0.08 + v * Math.min(W, H) * 0.22;
+      const ang = (i / N) * Math.PI * 2 - Math.PI / 2;
+      ctx2d.beginPath();
+      ctx2d.moveTo(cx + Math.cos(ang) * base, cy + Math.sin(ang) * base);
+      ctx2d.lineTo(cx + Math.cos(ang) * (base + len), cy + Math.sin(ang) * (base + len));
+      ctx2d.stroke();
+    }
+    ctx2d.shadowBlur = 0;
+    // 中央の円
+    ctx2d.beginPath();
+    ctx2d.arc(cx, cy, base * 0.92, 0, Math.PI * 2);
+    ctx2d.strokeStyle = els.color1.value + '66';
+    ctx2d.stroke();
+  }
+
+  drawIdle();
+  ['color1', 'color2', 'bgcolor'].forEach((id) => {
+    els[id].addEventListener('input', () => { if (!rafId) drawIdle(); });
+  });
+})();
+</script>
+</body>
+</html>
