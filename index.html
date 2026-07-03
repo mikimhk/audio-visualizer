@@ -165,7 +165,7 @@
 <p class="note">
   ※ 動画の書き出しは、音声を再生しながらリアルタイムに録画します（曲の長さぶん時間がかかります）。<br>
   ※ 書き出し中はこのタブを表示したままにしてください（バックグラウンドにすると描画が止まります）。<br>
-  ※ 出力形式はブラウザ標準の WebM（Chrome/Edge 推奨）。MP4 が必要な場合は変換ツールをご利用ください。
+  ※ 出力形式は MP4（H.264 + AAC）。お使いのブラウザが MP4 録画に非対応の場合のみ WebM になります。
 </p>
 
 <script>
@@ -279,14 +279,15 @@
       const chunks = [];
       recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
       recorder.onstop = () => {
+        const ext = mime.includes('mp4') ? 'mp4' : 'webm';
         const blob = new Blob(chunks, { type: mime });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `visualizer_${Date.now()}.${mime.includes('mp4') ? 'mp4' : 'webm'}`;
+        a.download = `visualizer_${Date.now()}.${ext}`;
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 10_000);
-        setStatus('動画をダウンロードしました 🎉');
+        setStatus(`${ext.toUpperCase()} 動画をダウンロードしました 🎉`);
       };
       recorder.start();
       recording = true;
@@ -329,11 +330,13 @@
   }
 
   function pickMime() {
+    // MP4 (H.264 + AAC) を最優先。プロファイル/レベルはブラウザに任せる
     const candidates = [
+      'video/mp4;codecs=avc1,mp4a.40.2',
+      'video/mp4',
       'video/webm;codecs=vp9,opus',
       'video/webm;codecs=vp8,opus',
       'video/webm',
-      'video/mp4',
     ];
     return candidates.find((m) => MediaRecorder.isTypeSupported(m)) || '';
   }
